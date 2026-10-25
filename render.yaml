@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: signal-hunt
+    env: docker
+    plan: free
+    healthCheckPath: /api/status
+    envVars:
+      - key: ADMIN_PASSWORD
+        value: ISLIEEEECELL
+      - key: DATABASE_PATH
+        value: /app/signalhunt.db
+      - key: MAX_TEAMS
+        value: "12"
+      - key: MAX_PARTICIPANTS_PER_TEAM
+        value: "5"
+      - key: MAX_TOTAL_PARTICIPANTS
+        value: "60"
+      - key: STRICT_SECURITY
+        value: "0"
