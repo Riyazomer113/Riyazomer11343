@@ -73,6 +73,8 @@
     4: "04 · FINAL CHALLENGE"
   };
 
+  const apiUrl = path => (window.SignalHuntConfig ? window.SignalHuntConfig.apiUrl(path) : path);
+
   const colourHexMap = {
     red: "#c93636",
     black: "#171717",
@@ -80,7 +82,12 @@
     yellow: "#e6c83d",
     orange: "#e87832",
     green: "#26794b",
-    purple: "#743bb0"
+    purple: "#743bb0",
+    grey: "#91949a",
+    brown: "#75472e",
+    peach: "#e9a08d",
+    cyan: "#17b8be",
+    white: "#e2e8f0"
   };
 
   function formatTime(seconds) {
@@ -101,8 +108,10 @@
     const remaining = Number(data.remaining_seconds);
     description.textContent = info[2] + (Number.isFinite(remaining) ? " Remaining Play Time: " + formatTime(remaining) + "." : "");
 
-    start.disabled = busy || currentStatus !== "waiting";
-    start.textContent = currentStatus === "waiting" ? "START CHALLENGE →" : "START UNAVAILABLE";
+    start.disabled = busy || currentStatus === "active";
+    start.textContent = currentStatus === "waiting"
+      ? "START CHALLENGE →"
+      : (currentStatus === "finished" ? "START NEW 2-HOUR EVENT →" : "START UNAVAILABLE");
     pause.disabled = busy || !["active", "paused"].includes(currentStatus);
     pause.textContent = currentStatus === "paused" ? "RESUME GAME" : "PAUSE GAME";
     finish.disabled = busy || ["waiting", "finished"].includes(currentStatus);
@@ -122,7 +131,7 @@
       totalDevices += t.participant_count || 0;
       totalSolves += t.solved_count || 0;
 
-      const swatchColour = colourHexMap[t.colour] || "#3c4528";
+      const swatchColour = colourHexMap[t.colour || t.color] || "#3c4528";
       const percent = Math.min(100, Math.round(((t.solved_count || 0) / (t.total_clues || 16)) * 100));
 
       let badgeClass = "badge-playing";
@@ -261,7 +270,7 @@
     const secret = password ? password.value.trim() : "";
     if (secret) {
       try {
-        const r = await fetch("/api/admin/overview", {
+        const r = await fetch(apiUrl("/api/admin/overview"), {
           headers: { "X-Admin-Password": secret },
           cache: "no-store"
         });
@@ -290,7 +299,7 @@
 
     // Public status fallback
     try {
-      const r = await fetch("/api/status", { cache: "no-store" });
+      const r = await fetch(apiUrl("/api/status"), { cache: "no-store" });
       if (r.ok) {
         const data = await r.json();
         renderStatus(data);
@@ -317,7 +326,7 @@
     message.textContent = `Sending ${action} request to server…`;
 
     try {
-      const res = await fetch(`/api/admin/game/${action}`, {
+      const res = await fetch(apiUrl(`/api/admin/game/${action}`), {
         method: "POST",
         headers: { "X-Admin-Password": secret }
       });
@@ -339,7 +348,7 @@
       const secret = password.value.trim();
       if (!secret) return alert("Enter organizer password.");
       try {
-        const res = await fetch(`/api/admin/team/${teamId}/reinstate`, {
+        const res = await fetch(apiUrl(`/api/admin/team/${teamId}/reinstate`), {
           method: "POST",
           headers: { "X-Admin-Password": secret }
         });
@@ -375,7 +384,7 @@
       if (!confirm("Delete this riddle? Teams will skip this riddle.")) return;
       const secret = password.value.trim();
       try {
-        const res = await fetch(`/api/admin/clues/${clueId}`, {
+        const res = await fetch(apiUrl(`/api/admin/clues/${clueId}`), {
           method: "DELETE",
           headers: { "X-Admin-Password": secret }
         });
@@ -418,7 +427,7 @@
       ];
 
       for (const t of templates) {
-        await fetch("/api/admin/clues", {
+        await fetch(apiUrl("/api/admin/clues"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -471,7 +480,7 @@
       try {
         const url = editId ? `/api/admin/clues/${editId}` : "/api/admin/clues";
         const method = editId ? "PUT" : "POST";
-        const res = await fetch(url, {
+        const res = await fetch(apiUrl(url), {
           method: method,
           headers: {
             "Content-Type": "application/json",
@@ -514,7 +523,7 @@
       if (!secret) return alert("Enter organizer password.");
 
       try {
-        const res = await fetch("/api/admin/game/reset", {
+        const res = await fetch(apiUrl("/api/admin/game/reset"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

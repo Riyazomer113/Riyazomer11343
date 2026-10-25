@@ -1,4 +1,40 @@
-/* Signal Hunt: Confirmed frontend content and display data for 4 Teams / 4 Stations */
+/* Signal Hunt: Confirmed frontend content and display data for 12 Teams / 4 Stations */
+window.SignalHuntConfig = {
+  getBackendUrl() {
+    if (window.SIGNAL_HUNT_BACKEND_URL) {
+      return window.SIGNAL_HUNT_BACKEND_URL.replace(/\/$/, "");
+    }
+    const metaTag = document.querySelector('meta[name="backend-url"]');
+    if (metaTag && metaTag.content) {
+      return metaTag.content.trim().replace(/\/$/, "");
+    }
+    try {
+      const stored = localStorage.getItem("sh_backend_url");
+      if (stored) return stored.trim().replace(/\/$/, "");
+    } catch (_) {}
+
+    const host = window.location.hostname;
+    // When running on Render in production
+    if (host.includes("onrender.com") || host === "riyazomer11343.onrender.com") {
+      return "https://riyazomer11344.onrender.com";
+    }
+    // Local development
+    if (host === "localhost" || host === "127.0.0.1") {
+      if (window.location.port && window.location.port !== "8000") {
+        return `http://${host}:8000`;
+      }
+      return "";
+    }
+    return "";
+  },
+
+  apiUrl(path) {
+    const base = this.getBackendUrl();
+    const cleanPath = path.startsWith("/") ? path : `/${path}`;
+    return base ? `${base}${cleanPath}` : cleanPath;
+  }
+};
+
 window.SignalHuntData = {
   event: {
     name: "Signal Hunt",

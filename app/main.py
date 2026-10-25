@@ -6,20 +6,8 @@ from collections import defaultdict
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
-
-app = FastAPI(title='Signal Hunt API', version='2.0.0')
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://riyazomer11343.onrender.com"
-    ],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Admin-Password"],
-)
+from pydantic import BaseModel, Field
 
 BASE = Path(__file__).parent
 candidates = [
@@ -32,7 +20,12 @@ FRONTEND = next((p for p in candidates if p and p.exists()), Path.home() / "Down
 GAME_DURATION_SECONDS = 2 * 60 * 60  # 120 minutes
 
 def get_db_path() -> Path:
-    return Path(os.getenv('DATABASE_PATH', str(BASE.parent / 'signalhunt.db')))
+    p = Path(os.getenv('DATABASE_PATH', str(BASE.parent / 'signalhunt.db')))
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return p
 
 def get_admin_password() -> str:
     return os.getenv('ADMIN_PASSWORD', 'ISLIEEEECELL')
@@ -43,6 +36,36 @@ if STRICT_SECURITY and (not get_admin_password() or get_admin_password() == 'cha
     raise RuntimeError("CRITICAL SECURITY: ADMIN_PASSWORD must be configured with a secure secret in production.")
 
 app = FastAPI(title='Signal Hunt API', version='2.0.0')
+
+# Configure Cross-Origin Resource Sharing (CORS)
+allowed_origins = [
+    "https://riyazomer11343.onrender.com",
+    "https://riyazomer11344.onrender.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5500",
+    "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5500",
+    "http://127.0.0.1:8000",
+]
+extra_origins = os.getenv("ALLOWED_ORIGINS", "")
+if extra_origins:
+    for o in extra_origins.split(","):
+        clean_o = o.strip()
+        if clean_o and clean_o not in allowed_origins:
+            allowed_origins.append(clean_o)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.onrender\.com",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
 # Static files mounts
 if (BASE / 'static').is_dir():
@@ -345,6 +368,8 @@ class Register(BaseModel):
 class Login(BaseModel):
     code: str = Field(min_length=4, max_length=100)
     device_id: str | None = Field(default=None, max_length=100)
+    colour: str | None = Field(default=None, max_length=50)
+    color: str | None = Field(default=None, max_length=50)
 
 class Submit(BaseModel):
     code: str = Field(min_length=4, max_length=100)
@@ -425,15 +450,30 @@ def start_game(x_admin_password: str | None = Header(default=None), request: Req
         state = read_game_state(c)
         if state["status"] == "active":
             return state
-        if state["status"] != "waiting":
-            raise HTTPException(409, f"Game cannot be started from '{state['status']}' state. Reset first if needed.")
+        if state["status"] not in ("waiting", "finished"):
+            raise HTTPException(409, f"Game cannot be started from '{state['status']}' state. Only 'waiting' or 'finished' games can be started.")
         started = now()
         c.execute(
             "UPDATE game_state SET status='active', started_at=?, paused_at=NULL, "
             "remaining_seconds=? WHERE id=1",
             (started, GAME_DURATION_SECONDS)
         )
-        log(c, None, "game_started", "120-minute game started by organizer")
+        log(c, None, "game_started", f"{GAME_DURATION_SECONDS // 60}-minute game started by organizer")
+        return read_game_state(c)
+
+
+@app.post('/api/admin/game/init')
+def init_game(x_admin_password: str | None = Header(default=None), request: Request = None):
+    """Safely initialize/reset game timer state to 'waiting' without deleting any teams, clues, submissions, or event data."""
+    ip = request.client.host if request and request.client else "global"
+    require_admin(x_admin_password, ip)
+    with connect() as c:
+        c.execute(
+            "UPDATE game_state SET status='waiting', started_at=NULL, paused_at=NULL, "
+            "remaining_seconds=? WHERE id=1",
+            (GAME_DURATION_SECONDS,)
+        )
+        log(c, None, "game_initialized", f"Organizer set game timer to waiting ({GAME_DURATION_SECONDS}s) without deleting data")
         return read_game_state(c)
 
 
@@ -571,6 +611,12 @@ def login(data: Login, request: Request = None):
         if t['eliminated']:
             raise HTTPException(403, 'This team has been eliminated. Contact an organizer.')
 
+        # Optional validation: if a colour was specified in the login request, verify it matches
+        req_colour = (data.colour or data.color or "").strip().lower()
+        if req_colour and t['colour'] and req_colour != t['colour'].strip().lower():
+            rate_limiter.record(fail_key)
+            raise HTTPException(400, f"Access code does not belong to the selected team '{req_colour}'.")
+
         # Enforce max 5 participants per team and max 60 total event participants
         if data.device_id:
             device_id = data.device_id.strip()
@@ -605,7 +651,8 @@ def login(data: Login, request: Request = None):
             'team': {
                 'id': t['id'],
                 'name': t['name'],
-                'colour': t['colour']
+                'colour': t['colour'],
+                'color': t['colour']
             },
             'status': state['status'],
             'remaining_seconds': state['remaining_seconds'],
@@ -783,6 +830,7 @@ def overview(x_admin_password: str | None = Header(default=None), request: Reque
                 'id': team['id'],
                 'name': team['name'],
                 'colour': team['colour'],
+                'color': team['colour'],
                 'eliminated': bool(team['eliminated']),
                 'created_at': team['created_at'],
                 'solved_count': prog['solved_count'],

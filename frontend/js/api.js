@@ -18,8 +18,9 @@ window.SignalHuntAPI = {
 
   async request(path, options = {}) {
     let response;
+    const fullUrl = window.SignalHuntConfig ? window.SignalHuntConfig.apiUrl(path) : path;
     try {
-      response = await fetch(path, {
+      response = await fetch(fullUrl, {
         ...options,
         headers: {
           "Content-Type": "application/json",
@@ -27,13 +28,21 @@ window.SignalHuntAPI = {
         }
       });
     } catch (_) {
-      throw new Error("Cannot reach Signal Hunt server. Check your network or server status.");
+      throw new Error(`Cannot reach Signal Hunt backend server at ${fullUrl}. Check that the backend is running and CORS is enabled.`);
     }
 
-    const data = await response.json().catch(() => ({}));
+    let data;
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = {};
+    }
 
     if (!response.ok) {
-      throw new Error(data.detail || `Request failed (HTTP ${response.status}).`);
+      const errDetail = data && (data.detail || data.message)
+        ? (data.detail || data.message)
+        : `Request failed with HTTP status ${response.status}.`;
+      throw new Error(errDetail);
     }
 
     return data;
@@ -46,26 +55,39 @@ window.SignalHuntAPI = {
 
       const data = await this.request("/api/login", {
         method: "POST",
-        body: JSON.stringify({ code: trimmedCode, device_id: deviceId })
+        body: JSON.stringify({
+          code: trimmedCode,
+          device_id: deviceId,
+          colour: teamId || "",
+          color: teamId || ""
+        })
       });
 
-      const displayTeam = window.SignalHuntData.teams.find(item => item.id === (data.team.colour || teamId)) ||
-                          window.SignalHuntData.teams.find(item => item.id === teamId) ||
-                          window.SignalHuntData.teams[0];
+      if (!data || !data.team || typeof data.team !== "object") {
+        throw new Error(data && (data.detail || data.message) ? (data.detail || data.message) : "Invalid team credentials returned by server.");
+      }
+
+      const teamObj = data.team;
+      const teamColour = (teamObj.colour || teamObj.color || teamId || "").toLowerCase();
+      const teamsList = (window.SignalHuntData && window.SignalHuntData.teams) ? window.SignalHuntData.teams : [];
+      const displayTeam = teamsList.find(item => item.id === teamColour) ||
+                          teamsList.find(item => item.id === teamId) ||
+                          teamsList[0] ||
+                          { id: teamColour, name: teamObj.name || "Unknown Team", color: "#3c4528", icon: "⚑" };
 
       const session = {
         team: {
-          id: data.team.id,
-          name: data.team.name,
-          colour: data.team.colour || teamId,
-          color: displayTeam.color,
-          icon: displayTeam.icon
+          id: teamObj.id,
+          name: teamObj.name || displayTeam.name,
+          colour: teamColour,
+          color: displayTeam.color || "#3c4528",
+          icon: displayTeam.icon || "⚑"
         },
         code: trimmedCode,
         deviceId: deviceId,
         status: data.status || "waiting",
-        remaining_seconds: data.remaining_seconds,
-        current_clue: data.current_clue,
+        remaining_seconds: data.remaining_seconds != null ? data.remaining_seconds : 7200,
+        current_clue: data.current_clue || null,
         progress: data.progress || {}
       };
 
@@ -74,7 +96,7 @@ window.SignalHuntAPI = {
       } catch (_) {}
 
       // Update state
-      const state = window.SignalHuntState;
+      const state = window.SignalHuntState || {};
       state.currentTeam = session.team;
       state.teamCode = trimmedCode;
       state.gameStatus = session.status;
