@@ -1,3 +1,4 @@
+
 import os, sqlite3, secrets, hashlib, hmac, time
 from pathlib import Path
 from datetime import datetime, timezone
@@ -6,6 +7,19 @@ from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title='Signal Hunt API', version='2.0.0')
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://riyazomer11343.onrender.com"
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Admin-Password"],
+)
 
 BASE = Path(__file__).parent
 candidates = [
